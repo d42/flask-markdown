@@ -30,7 +30,8 @@ decorating the extension class with :func:`extend`
 """
 from __future__ import absolute_import
 from flask import Markup
-from jinja2 import evalcontextfilter, escape
+import bleach
+from jinja2 import evalcontextfilter
 import markdown as md
 from markdown import (
     blockprocessors,
@@ -42,6 +43,9 @@ from markdown import (
 __all__ = ['blockprocessors', 'Extension', 'Markdown', 'preprocessors']
 
 
+
+MARKDOWN_TAGS = ['a', 'abbr', 'acronym', 'b', 'blockquote', 'em', 'i', 'li',
+                 'ol', 'strong', 'ul', 'p', 'h1', 'h2', 'h3', 'pre', 'code', 'hr']
 class Markdown(object):
     """
     Simple wrapper class for Markdown objects, any options that are available
@@ -68,33 +72,28 @@ class Markdown(object):
     :param markdown_options: Keyword args for the Markdown instance
     """
 
-    def __init__(self, app, auto_escape=False, **markdown_options):
+    def __init__(self, app, bleach_attributes=None, **markdown_options):
         """Markdown uses old style classes"""
-        self.auto_escape = auto_escape
+        self.bleach_attributes = bleach_attributes or {'tags': MARKDOWN_TAGS}
+
         self._instance = md.Markdown(**markdown_options)
-        app.jinja_env.filters.setdefault(
-            'markdown', self.__build_filter(self.auto_escape))
 
-    def __call__(self, stream):
-        return Markup(self._instance.convert(stream))
+        app.jinja_env.filters.setdefault('markdown', self.markdown)
+        app.jinja_env.filters.setdefault('safe_markdown', self.safe_markdown)
 
-    def __build_filter(self, app_auto_escape):
-        @evalcontextfilter
-        def markdown_filter(eval_ctx, stream):
-            """
-            Called by Jinja2 when evaluating the Markdown filter. Utilizes the
-            Markdown instance stored in the Flask app config.
+    def convert(self, stream, safe=False):
+        html = self._instance.reset().convert(stream)
+        if not safe:
+            html = bleach.clean(html, **self.bleach_attributes)
+        return html
 
-            :param eval_ctx: Evaluation context from Jinja2, used for
-                             auto_escape
-            :param stream: Content passed to the filter
-            """
-            __filter = self
-            if app_auto_escape and eval_ctx.autoescape:
-                return Markup(__filter(escape(stream)))
-            else:
-                return Markup(__filter(stream))
-        return markdown_filter
+    @evalcontextfilter
+    def markdown(self, eval_ctx, stream):
+        return Markup(self.convert(stream))
+
+    @evalcontextfilter
+    def safe_markdown(self, eval_ctx, stream):
+        return Markup(self.convert(stream, safe=True))
 
     def extend(self, configs=None):
         """

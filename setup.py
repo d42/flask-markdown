@@ -32,6 +32,7 @@ setup(
     install_requires=[
         'Flask',
         'markdown',
+        'bleach',
         ],
     test_suite="nose.collector",
     tests_require=[
